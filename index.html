@@ -600,13 +600,19 @@ async function restoreSession() {
         'Authorization': 'Bearer ' + saved.session.access_token
       }
     });
-    if (!r.ok) { clearSession(); showScreen('landing'); return; }
+    if (!r.ok) { 
+      console.log('Session expired, logging out');
+      clearSession(); 
+      showScreen('landing'); 
+      return; 
+    }
     var userData = await r.json();
     currentSession = saved.session;
     currentUser    = userData;
     myEmail        = saved.email;
     bootApp();
   } catch(e) {
+    console.log('Restore session error:', e);
     clearSession();
     showScreen('landing');
   }
@@ -624,7 +630,10 @@ async function sb(path, opts = {}) {
   }
   const r = await fetch(SUPABASE_URL + path, Object.assign({}, opts, { headers }));
   const text = await r.text();
-  if (!r.ok) throw new Error(text || r.statusText);
+  if (!r.ok) {
+    console.error('Supabase error:', r.status, text);
+    throw new Error(text || r.statusText);
+  }
   try { return JSON.parse(text); } catch(e) { return {}; }
 }
 
@@ -670,6 +679,7 @@ async function doLogin() {
     saveSession(data, data.user, email);
     bootApp();
   } catch(e) {
+    console.error('Login error:', e);
     errEl.textContent = 'connection failed';
   } finally {
     btn.disabled = false; btn.textContent = 'enter';
@@ -725,6 +735,7 @@ async function doRegister() {
     okEl.textContent = 'account created! your address: ' + email;
     setTimeout(function() { showScreen('login'); }, 4000);
   } catch(e) {
+    console.error('Register error:', e);
     errEl.textContent = 'connection failed';
   } finally {
     btn.disabled = false; btn.textContent = 'register';
@@ -758,22 +769,37 @@ function bootApp() {
   refreshTimer = setInterval(loadEmails, 15000);
 }
 
-// ── EMAILS ──
+// ── EMAILS - FIXED with user_id filter ──
 async function loadEmails() {
+  if (!currentUser || !currentUser.id) {
+    console.log('No current user, cannot load emails');
+    return;
+  }
+  
   try {
-    var q = '/rest/v1/emails?select=*&order=received_at.desc.nullslast,created_at.desc';
+    // Build query with user_id filter - this is the critical fix!
+    let q = `/rest/v1/emails?select=*&user_id=eq.${currentUser.id}&order=received_at.desc.nullslast,created_at.desc`;
+    
+    // Add folder filters
     if (currentFolder === 'inbox')   q += '&folder=eq.inbox&is_deleted=eq.false';
-    if (currentFolder === 'sent')    q += '&folder=eq.sent&is_deleted=eq.false';
-    if (currentFolder === 'trash')   q += '&is_deleted=eq.true';
-    if (currentFolder === 'unread')  q += '&is_read=eq.false&is_deleted=eq.false';
-    if (currentFolder === 'starred') q += '&is_starred=eq.true&is_deleted=eq.false';
+    else if (currentFolder === 'sent')    q += '&folder=eq.sent&is_deleted=eq.false';
+    else if (currentFolder === 'trash')   q += '&is_deleted=eq.true';
+    else if (currentFolder === 'unread')  q += '&is_read=eq.false&is_deleted=eq.false';
+    else if (currentFolder === 'starred') q += '&is_starred=eq.true&is_deleted=eq.false';
+    
+    console.log('Loading emails with query:', q);
+    
     const data = await sb(q, { headers: { 'Prefer': 'return=representation' } });
     emails = Array.isArray(data) ? data : [];
+    console.log(`Loaded ${emails.length} emails for folder ${currentFolder}`);
+    
     renderEmailList(emails);
     updateUnreadCount();
   } catch(e) {
+    console.error('Load emails error:', e);
     emails = [];
     renderEmailList([]);
+    toast('Failed to load emails: ' + e.message, true);
   }
 }
 
@@ -884,8 +910,9 @@ async function moveToTrash() {
 }
 
 async function markAllRead() {
+  if (!currentUser) return;
   try {
-    await sb('/rest/v1/emails?is_read=eq.false&is_deleted=eq.false', {
+    await sb(`/rest/v1/emails?user_id=eq.${currentUser.id}&is_read=eq.false&is_deleted=eq.false`, {
       method: 'PATCH',
       headers: { 'Prefer': 'return=minimal' },
       body: JSON.stringify({ is_read: true })
@@ -949,11 +976,12 @@ async function sendViaEdge(from, to, subject, text) {
 }
 
 async function saveSent(to, subject, body) {
+  if (!currentUser) return;
   await sb('/rest/v1/emails', {
     method: 'POST',
     headers: { 'Prefer': 'return=minimal' },
     body: JSON.stringify({
-      user_id:      currentUser ? currentUser.id : null,
+      user_id:      currentUser.id,
       from_address: myEmail,
       from_name:    currentUser && currentUser.user_metadata ? currentUser.user_metadata.username : '',
       to_address:   to,
@@ -1066,4 +1094,3 @@ document.getElementById('reg-password2').addEventListener('keydown',  function(e
 </script>
 </body>
 </html>
-
