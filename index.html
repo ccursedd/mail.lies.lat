@@ -651,8 +651,7 @@ async function sbAuth(path, body) {
   try { return JSON.parse(text); } catch(e) { return {}; }
 }
 
-// ── LOGIN ──
-async function doLogin() {
+// ── LOGIN ──async function doLogin() {
   const username = document.getElementById('login-username').value.trim().toLowerCase();
   const pass     = document.getElementById('login-password').value;
   const errEl    = document.getElementById('login-err');
