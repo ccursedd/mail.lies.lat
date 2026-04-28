@@ -753,7 +753,7 @@ function bootApp() {
   refreshTimer = setInterval(loadEmails, 15000);
 }
 
-// FIXED loadEmails - uses service role to bypass RLS
+// FIXED loadEmails - uses service role to bypass RLS (working version)
 async function loadEmails() {
   if (!currentUser || !currentUser.id) {
     console.log('No current user, cannot load emails');
